@@ -82,7 +82,7 @@ const char* TIME_ZONE = "WIB-7";
 #define SCREEN_ADDRESS 0x3C
 
 // Buffer stream: 24 KB (giu muc nay de con RAM cho BLE + Wi-Fi; tang buffer co the lam het heap)
-#define AUDIO_BUFFER_SIZE 24576
+#define AUDIO_BUFFER_SIZE   16384  // 16 KB = 16384 bytes
 
 // Volume: moi lan bam GPIO10 se tang 1 muc, den muc lon nhat thi quay ve muc nho nhat
 const float VOLUME_LEVELS[] = { 0.20, 0.35, 0.50, 0.65, 0.80 };
