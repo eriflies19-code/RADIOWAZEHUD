@@ -81,8 +81,8 @@ const char* TIME_ZONE = "WIB-7";
 #define OLED_RESET     -1
 #define SCREEN_ADDRESS 0x3C
 
-// Buffer stream: 24 KB (giu muc nay de con RAM cho BLE + Wi-Fi; tang buffer co the lam het heap)
-#define AUDIO_BUFFER_SIZE   16384  // 16 KB = 16384 bytes
+// Buffer stream: ~22 KB (giu muc nay de con RAM cho BLE + Wi-Fi; tang buffer co the lam het heap)
+#define AUDIO_BUFFER_SIZE   22528
 
 // Volume: moi lan bam GPIO10 se tang 1 muc, den muc lon nhat thi quay ve muc nho nhat
 const float VOLUME_LEVELS[] = { 0.20, 0.35, 0.50, 0.65, 0.80 };
@@ -386,6 +386,7 @@ unsigned long volumeButtonChangeTime  = 0;
 
 // Nhan nut chi dat yeu cau, loop se mo stream
 bool channelChangeRequested = false;
+bool selectedStationNeedsSave = false;
 
 // Nhan giu GPIO4: dung chung (ENABLE_HUD 0 van can de bam ngan hoat dong)
 unsigned long buttonPressStarted = 0;
@@ -873,8 +874,7 @@ void requestChannelChange()
     if (currentStation >= totalStations())
         currentStation = 0;
 
-    radioPrefs.putUChar(PREF_STATION, currentStation);
-
+    selectedStationNeedsSave = true;
     channelChangeRequested = true;
 
     showingChannelMessage = true;
@@ -971,6 +971,16 @@ void handleButton()
 #endif
 }
 
+void saveSelectedStation()
+{
+    if (!selectedStationNeedsSave)
+        return;
+
+    selectedStationNeedsSave = false;
+    if (radioPrefs.putUChar(PREF_STATION, currentStation) != sizeof(currentStation))
+        Serial.println("ERROR: FAILED TO SAVE SELECTED STATION");
+}
+
 void handleChannelChange()
 {
     if (!channelChangeRequested)
@@ -980,6 +990,7 @@ void handleChannelChange()
     channelChangeRequested = false;
 
     stopStream();
+    saveSelectedStation();
 
     // Doi kenh: bo qua loi cua kenh cu
     noteRadioOK();
@@ -1330,8 +1341,7 @@ void webPrev()
     else
         currentStation--;
 
-    radioPrefs.putUChar(PREF_STATION, currentStation);
-
+    selectedStationNeedsSave = true;
     channelChangeRequested = true;
     showingChannelMessage = true;
     channelMessageTime = millis();
@@ -1360,8 +1370,7 @@ void webStation()
 
     currentStation = (uint8_t)index;
 
-    radioPrefs.putUChar(PREF_STATION, currentStation);
-
+    selectedStationNeedsSave = true;
     channelChangeRequested = true;
     showingChannelMessage = true;
     channelMessageTime = millis();
@@ -1426,8 +1435,7 @@ void webAddStation()
 
     // Chuyen sang kenh moi de phat thu
     currentStation = totalStations() - 1;
-    radioPrefs.putUChar(PREF_STATION, currentStation);
-
+    selectedStationNeedsSave = true;
     channelChangeRequested = true;
     showingChannelMessage  = true;
     channelMessageTime     = millis();
@@ -1467,7 +1475,7 @@ void webDelStation()
         currentStation--;
     }
 
-    radioPrefs.putUChar(PREF_STATION, currentStation);
+    selectedStationNeedsSave = true;
 
     Serial.printf("DEL STATION %d\n", i + 1);
 
@@ -1579,6 +1587,17 @@ NimBLECharacteristic* rxChar = nullptr;   // notify -> Android
 bool hudMode = false;                   // dang o che do HUD
 volatile bool hudAudioReady = false;    // I2S da mo (16 kHz) cho tieng bip
 
+bool ensureHudQueue() {
+  if (lineQ != nullptr) return true;
+
+  lineQ = xQueueCreate(4, 520);
+  if (lineQ == nullptr) {
+    Serial.println("ERROR: HUD COMMAND QUEUE ALLOCATION FAILED");
+    return false;
+  }
+  return true;
+}
+
 // ---------- Gui du lieu len Android (notify, chia chunk 20 byte cho an toan voi MTU 23) ----------
 void sendLine(const char* s) {
   if (!rxChar || !bleConnected) return;
@@ -1636,7 +1655,9 @@ class SrvCB : public NimBLEServerCallbacks {
   }
 };
 
-void startBle() {
+bool startBle() {
+  if (!ensureHudQueue()) return false;
+
   if (!bleInitialized) {
     NimBLEDevice::init("WazeHUD");
     NimBLEServer* bleServer = NimBLEDevice::createServer();
@@ -1663,6 +1684,7 @@ void startBle() {
   NimBLEDevice::getAdvertising()->start();
   bleEnabled = true;
   Serial.printf("HUD BLE ON - HEAP FREE: %u bytes\n", ESP.getFreeHeap());
+  return true;
 }
 
 void setHudAvailability(bool enable) {
@@ -1691,7 +1713,14 @@ void setHudAvailability(bool enable) {
     delay(150); // cho Wi-Fi driver giai phong radio truoc khi khoi tao NimBLE
 
     showStatus("STARTING BLE...", "PLEASE WAIT");
-    startBle();
+    if (!startBle()) {
+      showStatus("HUD ERROR", "RESTARTING RADIO");
+      Serial.println("HUD BLE START FAILED -> RESTART");
+      Serial.flush();
+      delay(150);
+      ESP.restart();
+      return;
+    }
     showStatus("HUD BLE ON", "WAITING FOR PHONE");
     Serial.println("GPIO4 HOLD: HUD BLE ENABLED; waiting for WazeMod");
   } else {
@@ -2215,6 +2244,15 @@ void demoStep() {
 // ---------- Vao / ra che do HUD ----------
 void enterHudMode()
 {
+    if (!ensureHudQueue())
+    {
+        Serial.println("HUD MODE START FAILED -> RESTART");
+        Serial.flush();
+        delay(150);
+        ESP.restart();
+        return;
+    }
+
     Serial.println("BLE CONNECTED -> HUD MODE");
 
     hudMode = true;
@@ -2274,7 +2312,8 @@ void loopHud()
         sendDevPending = false;
         sendLine(DEV_JSON);
     }
-    while (xQueueReceive(lineQ, line, 0) == pdTRUE) handleLine(line);
+    if (lineQ != nullptr)
+        while (xQueueReceive(lineQ, line, 0) == pdTRUE) handleLine(line);
 
 #if DEMO_MODE
     demoStep();
@@ -2419,9 +2458,6 @@ void setup()
     }
 
 #if ENABLE_HUD
-    // Hang doi dong lenh BLE (HLP) - phai co truoc khi bat BLE
-    lineQ = xQueueCreate(4, 520);
-
 #if DEMO_MODE
     // Thu man hinh HUD: vao HUD ngay, du lieu gia, khong WiFi/radio/BLE
     enterHudMode();
@@ -2828,6 +2864,7 @@ void loop()
     handleVolumeButton();
     handleChannelChange();
     handleRadio();
+    saveSelectedStation();
     handleWiFi();
     updateOLED();
 }
