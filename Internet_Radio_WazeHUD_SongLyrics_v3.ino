@@ -643,8 +643,6 @@ void drawMainPage()
 
     drawSignalBars(108, 1);
 
-    display.drawLine(0, 17, 127, 17, SSD1306_WHITE);
-
     // Ten bai hat (chay ngang neu dai); dai khong gui ten bai thi hien ten dai
     {
         char line[130];
