@@ -1,7 +1,6 @@
 /*
   ============================================================
-  ESP32-C3 INTERNET RADIO + WAZE HUD - AUDIO SMOOTHING
-  ============================================================
+  ESP32-C3 INTERNET RADIO + WAZE HUD - V3.2.1 (WAVEFORM 64 bars)
 
   MAC DINH:  Internet radio (WiFi) + web control, BLE tat.
   GIU GPIO4 2 GIAY: dung radio, tat WiFi, bat BLE cho WazeMod.
@@ -23,7 +22,6 @@
                (ESP32 khong tai loi => khong ton RAM). Can dien thoai co Internet.
 */
 
-// ---- Cau hinh nhanh (dat truoc include) ----
 // 1 = cho phep mo Waze HUD bang nut GPIO4,  0 = chi radio
 #define ENABLE_HUD 1
 // 1 = vao thang HUD voi du lieu gia de thu man hinh (khong radio, khong BLE)
@@ -96,11 +94,6 @@ uint8_t volumeLevel = 0;
 #define WIFI_RETRY_MS      5000UL
 #define OLED_REFRESH_MS     250UL  // 4 fps: giam tranh CPU/I2C voi giai ma MP3
 #define CHANNEL_MESSAGE_MS 1200UL
-
-// Waveform: 32 cot x 4 pixel = 128, moi cot = 32 sample
-#define WAVE_BARS            32
-#define WAVE_SAMPLES_PER_BAR 32
-
 
 #if ENABLE_HUD
 // Mat BLE bao lau thi thoat HUD (khoi dong lai de quay ve radio).
@@ -278,15 +271,6 @@ const char* PREF_NAMESPACE = "radio";
 const char* PREF_STATION   = "station";
 
 
-// ============================================================
-// WAVEFORM
-// ============================================================
-
-uint16_t waveBarIndex    = 0;
-uint16_t waveSampleInBar = 0;
-int32_t  wavePeak        = 0;
-uint8_t  waveBars[WAVE_BARS];
-
 // Dem so sample da phat ra loa: dung de phat hien dai chet / treo
 volatile uint32_t audioSampleCount = 0;
 
@@ -302,10 +286,19 @@ Adafruit_SSD1306 display(
     OLED_RESET
 );
 
-class VisualizerOutputI2S : public AudioOutputI2S
+// Waveform: 42 cot x 3 pixel (cot rong 2px + 1px cach) = 126px, moi cot = 32 sample
+#define WAVE_BARS            64
+#define WAVE_BAR_PITCH       2
+#define WAVE_SAMPLES_PER_BAR 32
+
+uint16_t waveBarIndex    = 0;
+uint16_t waveSampleInBar = 0;
+int32_t  wavePeak        = 0;
+uint8_t  waveBars[WAVE_BARS];
+
+class RadioOutputI2S : public AudioOutputI2S
 {
 public:
-
     bool ConsumeSample(int16_t sample[2]) override
     {
         audioSampleCount++;
@@ -337,7 +330,7 @@ public:
     }
 };
 
-VisualizerOutputI2S*       out  = nullptr;
+RadioOutputI2S*            out  = nullptr;
 AudioGeneratorMP3*         mp3  = nullptr;
 AudioFileSourceICYStream*  file = nullptr;
 AudioFileSourceBuffer*     buff = nullptr;
@@ -568,20 +561,6 @@ void drawSignalBars(
     }
 }
 
-void drawWaveform()
-{
-    /*
-      Waveform doi xung quanh y=45, cao toi da +-8 px (y=37..53)
-      => khong de len dong trang thai (y=28..35) va footer (y>=54).
-    */
-    for (int i = 0; i < WAVE_BARS; i++)
-    {
-        int half = map(waveBars[i], 0, 31, 1, 8);
-
-        display.fillRect(i * 4, 45 - half, 3, half * 2 + 1, SSD1306_WHITE);
-    }
-}
-
 bool isPlaying()
 {
     return radioStarted && mp3 != nullptr && mp3->isRunning();
@@ -627,6 +606,17 @@ void asciiFold(const char* in, char* outBuf, size_t outSize)
     }
 
     outBuf[o] = '\0';
+}
+
+void drawWaveform()
+{
+    // Doi xung quanh y=48, cao toi da +-5 px (y=43..53): duoi duong ke y=41, tren footer y=56
+    for (int i = 0; i < WAVE_BARS; i++)
+    {
+        int half = map(waveBars[i], 0, 31, 1, 5);
+
+        display.fillRect(i * WAVE_BAR_PITCH, 48 - half, 1, half * 2 + 1, SSD1306_WHITE);
+    }
 }
 
 void drawMainPage()
@@ -708,19 +698,18 @@ void drawMainPage()
         display.print("dB");
     }
 
-    // Waveform
-    display.drawLine(0, 45, 127, 45, SSD1306_WHITE);
+    //display.drawLine(0, 41, 127, 41, SSD1306_WHITE); dong 2
     drawWaveform();
 
     // Footer
-    display.setCursor(0, 54);
+    display.setCursor(0, 56);
     display.print("CH ");
     display.print(currentStation + 1);
     display.print("/");
     display.print(totalStations());
 
     // Volume: chi hien so luong dau cham tuong ung muc volume
-    display.setCursor(90, 54);
+    display.setCursor(90, 56);
     for (int i = 0; i <= volumeLevel; i++)
     {
         display.print(".");
@@ -790,6 +779,14 @@ void stopStream()
     radioStarted = false;
 }
 
+// Log trang thai buffer: "Buffer underflow" = mang cham hon toc do phat,
+// buffer can nap lai het (nghe thay giat). Dung de kiem tra luc moi mo kenh.
+void onBufferStatus(void* cbData, int code, const char* msg)
+{
+    (void)cbData;
+    Serial.printf("BUF [%lu ms] %d: %s\n", millis(), code, msg);
+}
+
 bool startStream()
 {
     if (WiFi.status() != WL_CONNECTED || out == nullptr)
@@ -822,6 +819,8 @@ bool startStream()
         stopStream();
         return false;
     }
+
+    buff->RegisterStatusCB(onBufferStatus, nullptr);
 
     uint32_t heapAfterBuffer = ESP.getFreeHeap();
 
@@ -2257,7 +2256,7 @@ void enterHudMode()
 
     hudMode = true;
 
-    // 1) Dung radio (giai phong HTTP stream + buffer 24 KB)
+    // 1) Dung radio (giai phong HTTP stream + buffer am thanh)
     channelChangeRequested = false;
     stopStream();
     Serial.println("HUD step 1: radio stopped");
@@ -2434,7 +2433,7 @@ void setup()
     showStatus("INTERNET RADIO", "STARTING...");
 
     // I2S + MP3 (tao truoc WiFi de startStream luon co out hop le)
-    out = new VisualizerOutputI2S();
+    out = new RadioOutputI2S();
 
     if (out == nullptr)
     {
@@ -2481,6 +2480,9 @@ void setup()
         startWiFiSetupAP();
     } else {
         // WiFi da ket noi: mo web control va bat dau radio.
+        // Tat tiet kiem dien WiFi: stream 128k khong bi giat luc moi mo kenh
+        WiFi.setSleep(false);
+
         startNormalWebServer();
 
         // Hien dia chi web control tren OLED de khong can Serial
