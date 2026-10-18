@@ -992,7 +992,7 @@ void handleChannelChange()
     // Doi kenh: bo qua loi cua kenh cu
     noteRadioOK();
 
-    showStatus("CHUYEN KENH", stName(currentStation));
+    showStatus("NEXT CHANNEL", stName(currentStation));
 
     if (WiFi.status() == WL_CONNECTED)
     {
