@@ -3,7 +3,7 @@
   "builtInLibrariesFolders": "C:\\Users\\CHOPPER\\AppData\\Local\\Arduino15\\libraries",
   "compiler.optimization_flags": "-Os",
   "customBuildProperties": "",
-  "fqbn": "esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=cdc,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=builtin,ZigbeeMode=default",
+  "fqbn": "esp32:esp32:esp32c3:UploadSpeed=921600,CDCOnBoot=cdc,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default",
   "hardwareFolders": "C:\\Users\\CHOPPER\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12,C:\\Users\\CHOPPER\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.12",
   "otherLibrariesFolders": "c:\\Users\\CHOPPER\\Documents\\Arduino\\libraries",
   "sketchLocation": "D:\\Download\\Internet_Radio_WazeHUD_SongLyrics_v3"
