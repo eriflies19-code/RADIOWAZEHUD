@@ -20,6 +20,8 @@
   TEN BAI HAT: doc tu ICY metadata cua dai (neu dai co gui), hien tren Serial + web.
   LOI BAI HAT: trang web tren DIEN THOAI tu tra tu lrclib.net theo ten bai
                (ESP32 khong tai loi => khong ton RAM). Can dien thoai co Internet.
+ TAT BAO VE MAN HINH SAU 5 PHUT: RADIO TAT MAN OLED de tiet kiem dien.
+  ============================================================
 */
 
 // 1 = cho phep mo Waze HUD bang nut GPIO4,  0 = chi radio
@@ -435,6 +437,32 @@ unsigned long lastWiFiRetry  = 0;
 bool          showingChannelMessage = false;
 unsigned long channelMessageTime    = 0;
 unsigned long lastOLEDUpdate        = 0;
+// Tat man hinh radio khi khong bam nut 5 phut (HUD luon sang)
+#define OLED_SLEEP_MS 60000UL
+bool          oledSleeping   = false;
+unsigned long lastActivityMs = 0;
+bool          buttonWokeScreen = false;
+
+void oledWake()
+{
+    lastActivityMs = millis();
+
+    if (oledSleeping && oledReady)
+    {
+        display.ssd1306_command(SSD1306_DISPLAYON);
+        oledSleeping   = false;
+        lastOLEDUpdate = 0;
+    }
+}
+
+// Goi khi co thao tac nut: tra ve true neu man hinh dang tat (luc do chi danh thuc)
+bool oledTouch()
+{
+    bool wasSleeping = oledSleeping;
+    oledWake();
+    return wasSleeping;
+}
+
 int           cachedRSSI             = -99;
 unsigned long lastRSSIUpdate         = 0;
 
@@ -722,6 +750,16 @@ void updateOLED()
         return;
 
     unsigned long now = millis();
+        if (oledSleeping)
+        return;
+
+    if (now - lastActivityMs >= OLED_SLEEP_MS)
+    {
+        display.ssd1306_command(SSD1306_DISPLAYOFF);
+        oledSleeping = true;
+        Serial.println("OLED OFF");
+        return;
+    }
 
     // RSSI la thao tac driver Wi-Fi; chi cap nhat moi 5 giay, khong goi moi frame OLED.
     if (WiFi.status() == WL_CONNECTED && now - lastRSSIUpdate >= 5000UL) {
@@ -900,7 +938,9 @@ void handleVolumeButton()
 
         // LOW = vua nhan
         if (volumeButtonStableState == LOW)
-        {
+        { 
+            if (oledTouch())
+                return;   // lan bam dau chi danh thuc man hinh
             volumeLevel++;
 
             if (volumeLevel >= VOLUME_LEVEL_COUNT)
@@ -941,6 +981,7 @@ void handleButton()
             // Bat dau nhan: chua doi kenh ngay, cho xem co phai nhan giu 2 giay
             buttonPressStarted = now;
             buttonLongPressHandled = false;
+            buttonWokeScreen = oledTouch();
         }
         else
         {
@@ -950,7 +991,7 @@ void handleButton()
 #if ENABLE_HUD
             radioActive = !bleEnabled;
 #endif
-            if (!buttonLongPressHandled && radioActive)
+            if (!buttonLongPressHandled && radioActive && !buttonWokeScreen)
                 requestChannelChange();
             buttonPressStarted = 0;
         }
@@ -1685,6 +1726,7 @@ bool startBle() {
 }
 
 void setHudAvailability(bool enable) {
+ oledWake();
   if (enable) {
     // Chuyen han sang che do cho HUD truoc khi khoi tao BLE.
     // Khoi tao NimBLE trong luc Wi-Fi dang stream MP3 co the lam treo vong lap.
@@ -2240,7 +2282,7 @@ void demoStep() {
 
 // ---------- Vao / ra che do HUD ----------
 void enterHudMode()
-{
+{   oledWake();
     if (!ensureHudQueue())
     {
         Serial.println("HUD MODE START FAILED -> RESTART");
@@ -2642,7 +2684,7 @@ String jsonEsc(const String& s)
 }
 
 void startWiFiSetupAP()
-{
+{   oledWake();
     wifiSetupMode = true;
     setupLastCheck = millis();
     setupLastRetry = millis();
