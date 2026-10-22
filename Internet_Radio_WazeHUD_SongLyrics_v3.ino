@@ -438,7 +438,7 @@ bool          showingChannelMessage = false;
 unsigned long channelMessageTime    = 0;
 unsigned long lastOLEDUpdate        = 0;
 // Tat man hinh radio khi khong bam nut 5 phut (HUD luon sang)
-#define OLED_SLEEP_MS 60000UL
+#define OLED_SLEEP_MS 300000UL
 bool          oledSleeping   = false;
 unsigned long lastActivityMs = 0;
 bool          buttonWokeScreen = false;
