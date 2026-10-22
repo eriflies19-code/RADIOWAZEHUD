@@ -991,6 +991,7 @@ void handleButton()
 #if ENABLE_HUD
             radioActive = !bleEnabled;
 #endif
+            radioActive = radioActive && !wifiSetupMode;
             if (!buttonLongPressHandled && radioActive && !buttonWokeScreen)
                 requestChannelChange();
             buttonPressStarted = 0;
@@ -2450,6 +2451,8 @@ void setup()
 
     buttonStableState = digitalRead(BUTTON_PIN);
     buttonLastReading = buttonStableState;
+    if (buttonStableState == LOW)
+        buttonPressStarted = millis();
 
     volumeButtonStableState = digitalRead(VOLUME_BUTTON_PIN);
     volumeButtonLastReading = volumeButtonStableState;
@@ -2514,10 +2517,12 @@ void setup()
     savedSSID = wifiPrefs.getString("ssid", "");
     savedPASS = wifiPrefs.getString("pass", "");
 
-    if (!connectSavedWiFi()) {
+    bool wifiConnected = connectSavedWiFi();
+    if (!wifiConnected) {
         // Khong co WiFi hop le: vao che do cai dat WiFi.
         // loop() se xu ly web setup cho den khi nguoi dung luu WiFi.
-        startWiFiSetupAP();
+        if (!bleEnabled)
+            startWiFiSetupAP();
     } else {
         // WiFi da ket noi: mo web control va bat dau radio.
         // Tat tiet kiem dien WiFi: stream 128k khong bi giat luc moi mo kenh
@@ -2527,7 +2532,6 @@ void setup()
 
         // Hien dia chi web control tren OLED de khong can Serial
         showStatus("WEB CONTROL", WiFi.localIP().toString().c_str());
-        delay(3000);
 
         showStatus("OPENING RADIO", stName(currentStation));
 
@@ -2640,7 +2644,10 @@ bool connectSavedWiFi()
 
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < 12000) {
-        delay(250);
+        handleButton();
+        if (bleEnabled)
+            return false;
+        delay(10);
         Serial.print(".");
     }
     Serial.println();
@@ -2879,6 +2886,7 @@ void loop()
 #endif
 
     if (wifiSetupMode) {
+        handleButton();
         handleWiFiSetupMode();
         delay(2);
         return;
